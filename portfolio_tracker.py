@@ -34,7 +34,7 @@ HOLDINGS = {
         "isin": "IE00B3RBWM25",
         "units": 31.541,
         "initial_price_eur": 158.5,
-        "currency": "GBp",  # trades in pence sterling
+        "currency": "USD",  # VWRD.L (USD-distributing) quotes in US dollars on the LSE
         "asset_type": "Benchmark ETF",
     },
     "RHM.DE": {
@@ -60,9 +60,6 @@ HOLDINGS = {
         "initial_price_eur": 2.0,    # cost basis per coin (drives performance)
         "currency": "USD",           # LEO-USD quotes in US dollars
         "asset_type": "Crypto",
-        # Valued at the live Yahoo Finance market price (USD → EUR), not scaled
-        # from the cost basis — the coin was bought well below its current price.
-        "market_value": True,
     },
 }
 
@@ -171,47 +168,31 @@ def fetch_data() -> pd.DataFrame:
 
 def prices_to_eur(close: pd.DataFrame) -> pd.DataFrame:
     """
-    Return each holding's value in EUR per unit.
-    Uses the user's confirmed purchase price as base and scales by percentage
-    changes in the raw price + FX movements, so no assumption about which
-    currency Yahoo Finance uses for the raw quote is needed.
+    Return each holding's market value in EUR per unit by converting the raw
+    Yahoo Finance quote from its native currency.
+
+    The cost basis (``initial_price_eur``) is used only to measure performance,
+    never to value a position — so each holding is always shown at its true live
+    price, regardless of what it was bought for.
     """
-    gbpeur = close.get("GBPEUR=X", pd.Series(1.18, index=close.index))
-    eurusd = close.get("EURUSD=X", pd.Series(1.08, index=close.index))
+    gbpeur = close.get("GBPEUR=X", pd.Series(1.0, index=close.index))
+    eurusd = close.get("EURUSD=X", pd.Series(1.0, index=close.index))
 
     eur = pd.DataFrame(index=close.index)
     for ticker, h in HOLDINGS.items():
         if ticker not in close.columns:
-            eur[ticker] = h["initial_price_eur"]
+            eur[ticker] = h["initial_price_eur"]  # no feed: fall back to cost basis
             continue
         p = close[ticker]
-
-        if h.get("market_value"):
-            # Value at the absolute live market price converted to EUR. Used when
-            # the cost basis is far below the current price (the relative-scaling
-            # path below would otherwise anchor the value to the cost basis).
-            if h["currency"] == "USD":
-                eur[ticker] = p / eurusd            # USD price → EUR
-            elif h["currency"] == "GBp":
-                eur[ticker] = p / 100 * gbpeur      # pence → GBP → EUR
-            else:
-                eur[ticker] = p
-            continue
-
-        p0 = p.iloc[0]  # raw price on first available day (= purchase day)
-
-        price_ratio = p / p0  # pure price-change factor (in raw currency)
-
-        if h["currency"] == "GBp":
-            # GBP/EUR also affects EUR value
-            fx_ratio = gbpeur / gbpeur.iloc[0]
-            eur[ticker] = h["initial_price_eur"] * price_ratio * fx_ratio
-        elif h["currency"] == "USD":
-            # USD → EUR: more USD per EUR → our USD holding worth less EUR
-            fx_ratio = (1 / eurusd) / (1 / eurusd.iloc[0])
-            eur[ticker] = h["initial_price_eur"] * price_ratio * fx_ratio
-        else:
-            eur[ticker] = h["initial_price_eur"] * price_ratio
+        cur = h["currency"]
+        if cur == "USD":
+            eur[ticker] = p / eurusd          # USD → EUR (eurusd = USD per EUR)
+        elif cur == "GBP":
+            eur[ticker] = p * gbpeur          # GBP → EUR
+        elif cur == "GBp":
+            eur[ticker] = p / 100 * gbpeur    # pence → GBP → EUR
+        else:                                 # EUR — already in target currency
+            eur[ticker] = p
     return eur
 
 
@@ -692,42 +673,6 @@ def find_chrome() -> str | None:
             or shutil.which("chromium") or shutil.which("chromium-browser"))
 
 
-def export_pdf(html_path: str, pdf_path: str = "dashboard.pdf") -> None:
-    """Render the dashboard HTML to a PDF via headless Chrome (best-effort)."""
-    import os, subprocess, tempfile, shutil
-
-    chrome = find_chrome()
-    if not chrome:
-        print("  PDF export skipped: no Chrome/Chromium found.")
-        return
-
-    abs_html = os.path.abspath(html_path)
-    abs_pdf  = os.path.abspath(pdf_path)
-    url = f"file:///{abs_html.replace(os.sep, '/')}"
-    profile = tempfile.mkdtemp(prefix="leo_pdf_")  # isolated profile avoids clashes
-
-    cmd = [
-        chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
-        "--no-pdf-header-footer",
-        "--virtual-time-budget=12000",            # let Plotly finish rendering
-        "--run-all-compositor-stages-before-draw",
-        f"--user-data-dir={profile}",
-        f"--print-to-pdf={abs_pdf}",
-        url,
-    ]
-    try:
-        subprocess.run(cmd, timeout=90,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if os.path.exists(abs_pdf):
-            print(f"PDF saved -> {pdf_path}")
-        else:
-            print("  PDF export failed: Chrome produced no output.")
-    except Exception as e:
-        print(f"  PDF export failed: {e}")
-    finally:
-        shutil.rmtree(profile, ignore_errors=True)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -764,10 +709,6 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"Dashboard saved -> {out_path}")
-
-    # Export a PDF copy of the dashboard on every run.
-    print("Exporting PDF ...")
-    export_pdf(out_path, "dashboard.pdf")
 
     import webbrowser, os, subprocess
     abs_path = os.path.abspath(out_path)

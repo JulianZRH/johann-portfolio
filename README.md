@@ -18,12 +18,10 @@ Running `portfolio_tracker.py` performs the following steps:
 1. **Fetches prices** — downloads daily close prices for every holding plus the
    `GBPEUR=X` and `EURUSD=X` FX pairs from Yahoo Finance (via `yfinance`),
    starting a few days before the investment date.
-2. **Converts to EUR** — each holding's confirmed purchase price (in EUR) is used
-   as the base and scaled by the percentage change of the raw quote *and* the
-   relevant FX movement. This avoids any assumption about which currency Yahoo
-   reports a given ticker in. Holdings flagged `market_value` (e.g. LEO Coin,
-   bought far below its current price) are instead valued at their absolute live
-   price converted to EUR, so performance is measured against the cost basis.
+2. **Converts to EUR** — each holding's raw quote is converted from its native
+   currency (USD or EUR) to EUR at the live FX rate, giving its true market
+   value. The cost basis (`initial_price_eur`) is used only to measure
+   performance, never to value a position.
 3. **Builds a daily portfolio series** — combines holding values with cash that
    compounds daily at the ECB deposit-facility rate (2.25 % p.a.).
 4. **Runs analytics** — cumulative return of each pick vs. the FTSE All-World
@@ -32,16 +30,14 @@ Running `portfolio_tracker.py` performs the following steps:
 5. **Renders the dashboard** — KPI cards, per-position cards, a stacked net-worth
    area chart, an asset-allocation donut, a benchmark comparison, and a country
    exposure choropleth + bar chart (all built with Plotly).
-6. **Exports a PDF** — renders `dashboard.html` to `dashboard.pdf` via headless
-   Chrome on every run (best-effort; skipped if no Chrome/Chromium is found).
-7. **Opens it** — writes `dashboard.html` and launches it (Chrome on Windows if
+6. **Opens it** — writes `dashboard.html` and launches it (Chrome on Windows if
    found, otherwise the default browser).
 
 ## Holdings
 
 | Ticker    | Name                       | Units   | Cost basis | Currency | Asset type        |
 |-----------|----------------------------|---------|------------|----------|-------------------|
-| `VWRD.L`  | FTSE All-World ETF (VWRD)  | 31.541  | €158.50    | GBp      | Benchmark ETF     |
+| `VWRD.L`  | FTSE All-World ETF (VWRD)  | 31.541  | €158.50    | USD      | Benchmark ETF     |
 | `RHM.DE`  | Rheinmetall AG             | 1.0     | €1,078.80  | EUR      | Individual Equity |
 | `TTWO`    | Take-Two Interactive       | 5.0     | €210.00    | USD      | Individual Equity |
 | `LEO-USD` | LEO Coin                   | 150.0   | €2.00      | USD      | Crypto            |
@@ -52,14 +48,14 @@ and accrues interest at the ECB rate. **LEO Coin is an additional holding** held
 since inception — its €2.00 cost basis drives its performance figure, while its
 value tracks the live `LEO-USD` price.
 
-### Valuation modes
+### Valuation
 
-Most holdings are valued live from Yahoo Finance by scaling their EUR cost basis
-by the quote's percentage change. LEO Coin uses `"market_value": True`, which
-values it at the **absolute** live `LEO-USD` price converted to EUR (≈€8.14/coin)
-— the right choice when a coin was bought well below its current price, since the
-relative-scaling path would otherwise pin the value to the €2.00 cost basis.
-Performance (e.g. +307 %) is always measured against `initial_price_eur`.
+Every holding is valued at its **live market price** from Yahoo Finance,
+converted from its native currency to EUR (`Currency` column above). Cost basis
+is only used to compute each position's performance — so a position is always
+shown at its real current price, regardless of what it was bought for. This is
+what lets LEO Coin (cost €2.00, now ≈€8.14) and Rheinmetall (cost €1,078.80, now
+≈€946.60) display correctly even though their cost basis differs from their value.
 
 ## Dashboard sections
 
@@ -67,7 +63,7 @@ Performance (e.g. +307 %) is always measured against `initial_price_eur`.
   and equity value.
 - **Position cards** — current value and return for each holding.
 - **Net worth** — stacked area of cash + each holding over time, with a total
-  line and the €13,000 reference line.
+  line and the cost-basis reference line (cash + every holding's cost ≈ €13,300).
 - **Asset allocation** — donut split across Risk-Free (Cash), Benchmark ETF,
   Individual Equity, and Crypto.
 - **Picks vs. benchmark** — cumulative % return of each pick against VWRD.
@@ -92,11 +88,8 @@ pip install -r requirements.txt
 python portfolio_tracker.py
 ```
 
-This writes `dashboard.html` (and a `dashboard.pdf` copy) to the project
-directory and opens the dashboard in your browser. Re-run any time to refresh
-with the latest market data. The PDF export uses headless Chrome, so it needs
-Chrome or Chromium installed; if neither is found the run still succeeds and
-only the PDF step is skipped.
+This writes `dashboard.html` to the project directory and opens it in your
+browser. Re-run any time to refresh with the latest market data.
 
 ## Configuration
 
@@ -105,9 +98,9 @@ Everything is configured at the top of `portfolio_tracker.py`:
 - `START_DATE` / `INITIAL_CASH` — investment date and the static starting cash.
   `INITIAL_CAPITAL` (total cost basis) is derived as cash + every holding's cost.
 - `HOLDINGS` — add or edit positions (ticker, units, cost basis in EUR,
-  currency, asset type). Set `asset_type` to `"Crypto"` to exclude a holding
-  from the equity-only country analytics. Add `"market_value": True` to value a
-  holding at its absolute live price instead of scaling from the cost basis.
+  `currency` of the Yahoo quote — `USD`, `EUR`, `GBP`, or `GBp` (pence) — and
+  asset type). Set `asset_type` to `"Crypto"` to exclude a holding from the
+  equity-only country analytics.
 - `ECB_DEPOSIT_RATE` — the rate at which idle cash compounds.
 - `FTSE_COUNTRY_WEIGHTS` — approximate benchmark country weights for the map.
 
