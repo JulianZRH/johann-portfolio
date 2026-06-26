@@ -360,24 +360,48 @@ def chart_country_map(exposure: pd.Series) -> str:
 
     countries, isos, values = zip(*valid)
 
+    # Log-transform z so low-weight countries stay visually distinct despite
+    # the USA outlier dominating the linear scale (same effect as reference).
+    raw_values = np.array(list(values), dtype=float)
+    z_log = np.log1p(raw_values)
+    z_log_norm = z_log / z_log.max()  # 0-1
+
+    # Colorscale matching reference: pale-green → green → orange → red → near-black
+    colorscale = [
+        [0.00, "#f7fbe8"],
+        [0.05, "#c5e09a"],
+        [0.15, "#8dc87a"],
+        [0.30, "#f5a623"],
+        [0.50, "#e04010"],
+        [0.70, "#980000"],
+        [1.00, "#1a0000"],
+    ]
+
+    # Build colorbar tick positions in log-normalised space at round % values
+    tick_pcts = [0.0, 0.2, 0.9, 2.1, 3.7, 5.7, round(raw_values.max(), 1)]
+    tick_vals = [np.log1p(p) / z_log.max() for p in tick_pcts]
+    tick_text = [f"{p:.1f}%" for p in tick_pcts]
+
     fig = go.Figure(go.Choropleth(
         locations=list(isos),
-        z=list(values),
+        z=z_log_norm.tolist(),
         text=list(countries),
-        colorscale=[[0, "#0d3349"], [0.15, "#115570"], [0.4, "#d04000"],
-                    [0.7, "#b00000"], [1.0, "#3d0000"]],
+        customdata=raw_values.tolist(),
+        colorscale=colorscale,
         zmin=0,
-        zmax=max(values),
+        zmax=1,
         marker=dict(line=dict(color=C["bg"], width=0.5)),
         colorbar=dict(
             title=dict(text="% equity", side="right", font=dict(color=C["text"])),
+            tickvals=tick_vals,
+            ticktext=tick_text,
             tickfont=dict(color=C["text"]),
             bgcolor="rgba(0,0,0,0)",
             outlinecolor=C["border"],
             outlinewidth=1,
             len=0.75,
         ),
-        hovertemplate="%{text}<br>%{z:.1f}%<extra></extra>",
+        hovertemplate="%{text}<br>%{customdata:.1f}%<extra></extra>",
     ))
 
     fig.update_geos(
