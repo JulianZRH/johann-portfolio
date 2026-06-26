@@ -147,25 +147,68 @@ PLOTLY_LAYOUT = dict(
 # DATA FETCHING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def fetch_ecb_deposit_rate(fallback: float = 0.0225) -> float:
+def fetch_ecb_rate_schedule(start: date, fallback: float = 0.0225) -> list:
     """
-    Fetch the latest ECB deposit facility rate as a decimal (e.g. 0.0225) from
-    the ECB Data Portal (series FM/D.U2.EUR.4F.KR.DFR.LEV). Returns ``fallback``
-    if the request or parse fails, so the script always runs offline.
+    Fetch the ECB deposit facility rate history (series FM/D.U2.EUR.4F.KR.DFR.LEV)
+    as a sorted list of ``(date, rate)`` change points, rate as a decimal
+    (e.g. 0.0225). The series is requested from well before ``start`` so the rate
+    in effect on ``start`` is always captured. Each change point marks the first
+    day a new rate applies; the rate then holds until the next point. Returns a
+    single fallback point if the request fails, so the script always runs.
     """
     import urllib.request, csv, io
+    buf_start = (start - timedelta(days=400)).isoformat()
     url = ("https://data-api.ecb.europa.eu/service/data/FM/"
-           "D.U2.EUR.4F.KR.DFR.LEV?lastNObservations=1&format=csvdata")
+           f"D.U2.EUR.4F.KR.DFR.LEV?startPeriod={buf_start}&format=csvdata")
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "portfolio-tracker"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             rows = list(csv.DictReader(io.StringIO(resp.read().decode("utf-8"))))
-        rate = float(rows[-1]["OBS_VALUE"]) / 100.0  # OBS_VALUE is a percentage
-        print(f"  ECB deposit facility rate: {rate*100:.2f}% (as of {rows[-1]['TIME_PERIOD']})")
-        return rate
+        points, prev = [], None
+        for r in rows:
+            v = r.get("OBS_VALUE")
+            if not v:
+                continue
+            rate = float(v) / 100.0  # OBS_VALUE is a percentage
+            if rate != prev:         # keep only change points
+                d = datetime.strptime(r["TIME_PERIOD"], "%Y-%m-%d").date()
+                points.append((d, rate))
+                prev = rate
+        if not points:
+            raise ValueError("no observations returned")
+        points.sort()
+        changes_after = [p for p in points if p[0] > start]
+        note = f", {len(changes_after)} change(s) since {start}" if changes_after else ""
+        print(f"  ECB deposit facility rate: {points[-1][1]*100:.2f}% now{note}")
+        return points
     except Exception as e:
-        print(f"  ECB rate fetch failed ({e}); using fallback {fallback*100:.2f}%.")
-        return fallback
+        print(f"  ECB rate fetch failed ({e}); using flat fallback {fallback*100:.2f}%.")
+        return [(start, fallback)]
+
+
+def cash_schedule(dates, rate_points: list, fallback: float) -> dict:
+    """
+    Daily-compounded cash value keyed by calendar date, applying the ECB rate in
+    effect on each day (a step function over ``rate_points``). This makes the
+    accrued interest correct even if the ECB changes the rate mid-period.
+    """
+    def rate_on(day: date) -> float:
+        r = fallback
+        for d, rate in rate_points:
+            if d <= day:
+                r = rate
+            else:
+                break
+        return r
+
+    end = max(dates).date()
+    by_date = {START_DATE: INITIAL_CASH}
+    cash, day = INITIAL_CASH, START_DATE
+    while day < end:
+        day += timedelta(days=1)
+        cash *= (1 + rate_on(day) / 365)
+        by_date[day] = cash
+    return by_date
 
 
 def fetch_data() -> pd.DataFrame:
@@ -219,15 +262,14 @@ def prices_to_eur(close: pd.DataFrame) -> pd.DataFrame:
     return eur
 
 
-def build_portfolio_series(close: pd.DataFrame) -> pd.DataFrame:
+def build_portfolio_series(close: pd.DataFrame, rate_points: list) -> pd.DataFrame:
     """Build daily portfolio valuation in EUR."""
     eur = prices_to_eur(close)
-    start_ts = pd.Timestamp(START_DATE)
+    cash_by_date = cash_schedule(eur.index, rate_points, ECB_DEPOSIT_RATE)
 
     records = []
     for dt, row in eur.iterrows():
-        days = max((dt - start_ts).days, 0)
-        cash = INITIAL_CASH * (1 + ECB_DEPOSIT_RATE / 365) ** days
+        cash = cash_by_date.get(dt.date(), INITIAL_CASH)
         holdings_values = {t: HOLDINGS[t]["units"] * row[t] for t in HOLDINGS}
         total = cash + sum(holdings_values.values())
         records.append({"date": dt, "cash": cash, **holdings_values, "total": total})
@@ -704,7 +746,8 @@ def find_chrome() -> str | None:
 
 def main():
     global ECB_DEPOSIT_RATE
-    ECB_DEPOSIT_RATE = fetch_ecb_deposit_rate(ECB_DEPOSIT_RATE)
+    rate_points = fetch_ecb_rate_schedule(START_DATE, ECB_DEPOSIT_RATE)
+    ECB_DEPOSIT_RATE = rate_points[-1][1]  # latest rate, used for display labels
 
     print("\nJohann's Portfolio Tracker")
     print(f"   Investment date : {START_DATE}")
@@ -714,7 +757,7 @@ def main():
 
     print("Fetching live market data ...")
     close   = fetch_data()
-    portfolio = build_portfolio_series(close)
+    portfolio = build_portfolio_series(close, rate_points)
     bench     = benchmark_returns(portfolio)
     exposure  = country_exposure(portfolio)
 

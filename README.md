@@ -23,8 +23,10 @@ Running `portfolio_tracker.py` performs the following steps:
    value. The cost basis (`initial_price_eur`) is used only to measure
    performance, never to value a position.
 3. **Builds a daily portfolio series** — combines holding values with cash that
-   compounds daily at the ECB deposit-facility rate, fetched live from the ECB
-   Data Portal each run (falling back to a hardcoded rate if offline).
+   compounds daily at the ECB deposit-facility rate. The full rate history is
+   fetched from the ECB Data Portal each run and the rate actually in effect on
+   each day is applied, so accrued interest stays correct even if the ECB
+   changes the rate mid-period (falls back to a flat hardcoded rate if offline).
 4. **Runs analytics** — cumulative return of each pick vs. the FTSE All-World
    benchmark, and a blended *equity-only* country exposure (crypto is excluded
    from country analytics).
@@ -105,9 +107,9 @@ Everything is configured at the top of `portfolio_tracker.py`:
   asset type). Set `asset_type` to `"Crypto"` to exclude a holding from the
   equity-only country analytics.
 - `ECB_DEPOSIT_RATE` — fallback rate at which idle cash compounds. The script
-  fetches the live ECB deposit-facility rate from the ECB Data Portal each run
-  (series `FM/D.U2.EUR.4F.KR.DFR.LEV`) and only uses this constant if the
-  request fails.
+  fetches the full ECB deposit-facility rate history from the ECB Data Portal
+  each run (series `FM/D.U2.EUR.4F.KR.DFR.LEV`) and compounds cash using the
+  rate in effect on each day; this constant is only used if the request fails.
 - `FTSE_COUNTRY_WEIGHTS` — approximate benchmark country weights for the map.
 
 ## Notes
@@ -115,6 +117,6 @@ Everything is configured at the top of `portfolio_tracker.py`:
 - Prices come from Yahoo Finance and may be delayed; FTSE All-World country
   weights are approximate. For informational purposes only — not financial
   advice.
-- The current ECB deposit-facility rate is applied as a flat rate across the
-  whole holding period (no intra-period rate-change schedule). Over a short
-  horizon the difference is negligible.
+- Cash interest uses the ECB deposit-facility rate in effect on each day (a
+  step function over the rate's change dates), so ECB rate changes during the
+  holding period are reflected accurately.
