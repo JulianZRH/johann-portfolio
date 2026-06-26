@@ -381,7 +381,7 @@ def chart_benchmark(bench: pd.DataFrame) -> str:
 
     fig.update_layout(
         **PLOTLY_LAYOUT,
-        title=dict(text="Individual Picks vs Benchmark (% return since inception)", font=dict(size=16)),
+        title=dict(text="Individual Picks vs Benchmark (% return since 23 Jun 2026)", font=dict(size=16)),
         xaxis=dict(gridcolor=C["border"], zeroline=False),
         yaxis=dict(gridcolor=C["border"], zeroline=True, ticksuffix="%",
                    zerolinecolor=C["border"]),
@@ -504,7 +504,6 @@ def build_dashboard(portfolio: pd.DataFrame, bench: pd.DataFrame, exposure: pd.S
     total = latest["total"]
     total_ret_pct = (total / INITIAL_CAPITAL - 1) * 100
     total_ret_eur = total - INITIAL_CAPITAL
-    days = (portfolio.index[-1] - portfolio.index[0]).days
 
     # KPI values per position
     pos_returns = []
@@ -531,7 +530,7 @@ def build_dashboard(portfolio: pd.DataFrame, bench: pd.DataFrame, exposure: pd.S
                  f"Initial: €{INITIAL_CAPITAL:,.0f}"),
         kpi_card("Total Return",
                  f"{total_ret_pct:+.2f}%",
-                 f"{'▲' if total_ret_eur >= 0 else '▼'} €{total_ret_eur:+,.2f} over {days} days",
+                 f"{'▲' if total_ret_eur >= 0 else '▼'} €{total_ret_eur:+,.2f} total return",
                  total_ret_color),
         kpi_card("Cash (ECB 2.25%)", f"€{latest['cash']:,.2f}",
                  f"Interest earned: €{cash_interest:,.2f}", C["green"]),
@@ -675,6 +674,61 @@ def build_dashboard(portfolio: pd.DataFrame, bench: pd.DataFrame, exposure: pd.S
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# OUTPUT / EXPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def find_chrome() -> str | None:
+    """Locate a Chrome/Chromium executable, or None if unavailable."""
+    import os, sys, shutil
+    if sys.platform == "win32":
+        for exe in (
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ):
+            if os.path.exists(exe):
+                return exe
+    return (shutil.which("google-chrome") or shutil.which("chrome")
+            or shutil.which("chromium") or shutil.which("chromium-browser"))
+
+
+def export_pdf(html_path: str, pdf_path: str = "dashboard.pdf") -> None:
+    """Render the dashboard HTML to a PDF via headless Chrome (best-effort)."""
+    import os, subprocess, tempfile, shutil
+
+    chrome = find_chrome()
+    if not chrome:
+        print("  PDF export skipped: no Chrome/Chromium found.")
+        return
+
+    abs_html = os.path.abspath(html_path)
+    abs_pdf  = os.path.abspath(pdf_path)
+    url = f"file:///{abs_html.replace(os.sep, '/')}"
+    profile = tempfile.mkdtemp(prefix="leo_pdf_")  # isolated profile avoids clashes
+
+    cmd = [
+        chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+        "--no-pdf-header-footer",
+        "--virtual-time-budget=12000",            # let Plotly finish rendering
+        "--run-all-compositor-stages-before-draw",
+        f"--user-data-dir={profile}",
+        f"--print-to-pdf={abs_pdf}",
+        url,
+    ]
+    try:
+        subprocess.run(cmd, timeout=90,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists(abs_pdf):
+            print(f"PDF saved -> {pdf_path}")
+        else:
+            print("  PDF export failed: Chrome produced no output.")
+    except Exception as e:
+        print(f"  PDF export failed: {e}")
+    finally:
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -711,23 +765,18 @@ def main():
         f.write(html)
     print(f"Dashboard saved -> {out_path}")
 
-    import webbrowser, os, subprocess, sys
+    # Export a PDF copy of the dashboard on every run.
+    print("Exporting PDF ...")
+    export_pdf(out_path, "dashboard.pdf")
+
+    import webbrowser, os, subprocess
     abs_path = os.path.abspath(out_path)
     url = f"file:///{abs_path.replace(os.sep, '/')}"
 
-    opened = False
-    if sys.platform == "win32":
-        chrome_candidates = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-        ]
-        for exe in chrome_candidates:
-            if os.path.exists(exe):
-                subprocess.Popen([exe, url])
-                opened = True
-                break
-    if not opened:
+    chrome = find_chrome()
+    if chrome:
+        subprocess.Popen([chrome, url])
+    else:
         webbrowser.open(url)
     print("Dashboard opened in browser.\n")
 

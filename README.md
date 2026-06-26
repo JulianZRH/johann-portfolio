@@ -32,7 +32,9 @@ Running `portfolio_tracker.py` performs the following steps:
 5. **Renders the dashboard** — KPI cards, per-position cards, a stacked net-worth
    area chart, an asset-allocation donut, a benchmark comparison, and a country
    exposure choropleth + bar chart (all built with Plotly).
-6. **Opens it** — writes `dashboard.html` and launches it (Chrome on Windows if
+6. **Exports a PDF** — renders `dashboard.html` to `dashboard.pdf` via headless
+   Chrome on every run (best-effort; skipped if no Chrome/Chromium is found).
+7. **Opens it** — writes `dashboard.html` and launches it (Chrome on Windows if
    found, otherwise the default browser).
 
 ## Holdings
@@ -90,8 +92,11 @@ pip install -r requirements.txt
 python portfolio_tracker.py
 ```
 
-This writes `dashboard.html` to the project directory and opens it in your
-browser. Re-run any time to refresh with the latest market data.
+This writes `dashboard.html` (and a `dashboard.pdf` copy) to the project
+directory and opens the dashboard in your browser. Re-run any time to refresh
+with the latest market data. The PDF export uses headless Chrome, so it needs
+Chrome or Chromium installed; if neither is found the run still succeeds and
+only the PDF step is skipped.
 
 ## Configuration
 
