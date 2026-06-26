@@ -4,7 +4,7 @@ Johann's Portfolio Tracker
 Birthday Investment Portfolio Dashboard Generator
 
 Investment date: 23 June 2026
-Initial capital: 13,000 EUR
+Birthday capital: 13,000 EUR (three equities + cash); LEO Coin held separately.
 """
 
 import warnings
@@ -23,7 +23,10 @@ import sys
 # ═══════════════════════════════════════════════════════════════════════════════
 
 START_DATE = date(2026, 6, 23)
-INITIAL_CAPITAL = 13_000.0  # EUR
+# Uninvested cash held since inception (stored statically, like each holding's
+# cost basis). The three equities cost ~€7,128, which with this cash makes up
+# the €13,000 birthday capital; LEO Coin is an additional holding on top.
+INITIAL_CASH = 5_871.95  # EUR
 
 HOLDINGS = {
     "VWRD.L": {
@@ -50,18 +53,16 @@ HOLDINGS = {
         "currency": "USD",
         "asset_type": "Individual Equity",
     },
-    "LEO": {
+    "LEO-USD": {
         "name": "LEO Coin",
         "isin": "—",
         "units": 150.0,
         "initial_price_eur": 2.0,    # cost basis per coin (drives performance)
-        "current_price_eur": 8.14,   # latest market price per coin (manual)
-        "currency": "EUR",
+        "currency": "USD",           # LEO-USD quotes in US dollars
         "asset_type": "Crypto",
-        # No reliable Yahoo Finance feed tracks this coin, so it is valued
-        # manually: bought at initial_price_eur, currently current_price_eur.
-        # Update current_price_eur to refresh the valuation.
-        "manual_price": True,
+        # Valued at the live Yahoo Finance market price (USD → EUR), not scaled
+        # from the cost basis — the coin was bought well below its current price.
+        "market_value": True,
     },
 }
 
@@ -72,10 +73,11 @@ EQUITY_TICKERS = [t for t, h in HOLDINGS.items() if h["asset_type"] != "Crypto"]
 ECB_DEPOSIT_RATE = 0.0225  # 2.25 % p.a.
 
 INITIAL_INVESTED = sum(h["units"] * h["initial_price_eur"] for h in HOLDINGS.values())
-INITIAL_CASH = INITIAL_CAPITAL - INITIAL_INVESTED
 INITIAL_EQUITY_INVESTED = sum(
     HOLDINGS[t]["units"] * HOLDINGS[t]["initial_price_eur"] for t in EQUITY_TICKERS
 )
+# Total cost basis deployed = static cash + every holding's cost basis.
+INITIAL_CAPITAL = INITIAL_CASH + INITIAL_INVESTED
 
 # Approximate FTSE All-World country weights (%)
 FTSE_COUNTRY_WEIGHTS = {
@@ -125,7 +127,7 @@ C = {
     "VWRD.L": "#58a6ff",
     "RHM.DE": "#f0c040",
     "TTWO": "#f78166",
-    "LEO": "#bc8cff",
+    "LEO-USD": "#bc8cff",
     "cash": "#56d364",
     "Risk-Free (Cash)": "#56d364",
     "Benchmark ETF": "#58a6ff",
@@ -151,8 +153,7 @@ def fetch_data() -> pd.DataFrame:
     fetch_start = (datetime.combine(START_DATE, datetime.min.time()) - timedelta(days=7)).strftime("%Y-%m-%d")
     fetch_end   = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Manually-priced holdings (e.g. crypto with no reliable feed) are skipped.
-    tickers = [t for t, h in HOLDINGS.items() if not h.get("manual_price")] + ["GBPEUR=X", "EURUSD=X"]
+    tickers = list(HOLDINGS.keys()) + ["GBPEUR=X", "EURUSD=X"]
     print(f"  Fetching prices {fetch_start} to {date.today()} ...")
 
     raw = yf.download(tickers, start=fetch_start, end=fetch_end,
@@ -180,20 +181,23 @@ def prices_to_eur(close: pd.DataFrame) -> pd.DataFrame:
 
     eur = pd.DataFrame(index=close.index)
     for ticker, h in HOLDINGS.items():
-        if h.get("manual_price"):
-            # No market feed: ramp linearly from cost basis (at inception) to the
-            # current manual price (latest date). Keeps the inception total at the
-            # initial capital while reflecting today's value and performance.
-            n = len(eur.index)
-            if n > 1:
-                eur[ticker] = np.linspace(h["initial_price_eur"], h["current_price_eur"], n)
-            else:
-                eur[ticker] = h["current_price_eur"]
-            continue
         if ticker not in close.columns:
             eur[ticker] = h["initial_price_eur"]
             continue
         p = close[ticker]
+
+        if h.get("market_value"):
+            # Value at the absolute live market price converted to EUR. Used when
+            # the cost basis is far below the current price (the relative-scaling
+            # path below would otherwise anchor the value to the cost basis).
+            if h["currency"] == "USD":
+                eur[ticker] = p / eurusd            # USD price → EUR
+            elif h["currency"] == "GBp":
+                eur[ticker] = p / 100 * gbpeur      # pence → GBP → EUR
+            else:
+                eur[ticker] = p
+            continue
+
         p0 = p.iloc[0]  # raw price on first available day (= purchase day)
 
         price_ratio = p / p0  # pure price-change factor (in raw currency)
@@ -239,7 +243,7 @@ def benchmark_returns(portfolio: pd.DataFrame) -> pd.DataFrame:
     out["FTSE All World (Benchmark)"] = (portfolio["VWRD.L"] / first["VWRD.L"] - 1) * 100
     out["Rheinmetall"] = (portfolio["RHM.DE"] / first["RHM.DE"] - 1) * 100
     out["Take-Two Interactive"] = (portfolio["TTWO"] / first["TTWO"] - 1) * 100
-    out["LEO Coin"] = (portfolio["LEO"] / first["LEO"] - 1) * 100
+    out["LEO Coin"] = (portfolio["LEO-USD"] / first["LEO-USD"] - 1) * 100
     return pd.DataFrame(out)
 
 
@@ -283,7 +287,7 @@ def chart_networth(portfolio: pd.DataFrame) -> str:
         ("VWRD.L",  "FTSE All World ETF",         C["VWRD.L"]),
         ("RHM.DE",  "Rheinmetall AG",             C["RHM.DE"]),
         ("TTWO",    "Take-Two Interactive",        C["TTWO"]),
-        ("LEO",     "LEO Coin (Crypto)",          C["LEO"]),
+        ("LEO-USD", "LEO Coin (Crypto)",          C["LEO-USD"]),
     ]
     cum = pd.Series(0.0, index=portfolio.index)
     for col, label, clr in components:
@@ -307,7 +311,7 @@ def chart_networth(portfolio: pd.DataFrame) -> str:
 
     # Initial capital reference line
     fig.add_hline(y=INITIAL_CAPITAL, line=dict(color=C["muted"], dash="dash", width=1),
-                  annotation_text="Initial €13,000", annotation_font_color=C["muted"])
+                  annotation_text=f"Cost basis €{INITIAL_CAPITAL:,.0f}", annotation_font_color=C["muted"])
 
     fig.update_layout(
         **PLOTLY_LAYOUT,
@@ -329,7 +333,7 @@ def chart_allocation(portfolio: pd.DataFrame) -> str:
         latest["cash"],
         latest["VWRD.L"],
         latest["RHM.DE"] + latest["TTWO"],
-        latest["LEO"],
+        latest["LEO-USD"],
     ]
     colors = [C["Risk-Free (Cash)"], C["Benchmark ETF"], C["Individual Equity"], C["Crypto"]]
 
@@ -361,7 +365,7 @@ def chart_benchmark(bench: pd.DataFrame) -> str:
         "FTSE All World (Benchmark)": C["VWRD.L"],
         "Rheinmetall": C["RHM.DE"],
         "Take-Two Interactive": C["TTWO"],
-        "LEO Coin": C["LEO"],
+        "LEO Coin": C["LEO-USD"],
     }
     fig = go.Figure()
     fig.add_hline(y=0, line=dict(color=C["muted"], dash="dash", width=1))
@@ -627,7 +631,7 @@ def build_dashboard(portfolio: pd.DataFrame, bench: pd.DataFrame, exposure: pd.S
 <header>
   <div>
     <h1>Johann's <span>Portfolio</span> Dashboard</h1>
-    <div class="subtitle">Birthday Investment · Started 23 June 2026 · Initial Capital: €13,000</div>
+    <div class="subtitle">Birthday Investment · Started 23 June 2026 · Cost Basis: €{INITIAL_CAPITAL:,.0f}</div>
   </div>
   <div class="stamp">
     <strong>Last updated</strong>
