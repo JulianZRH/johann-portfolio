@@ -50,12 +50,27 @@ HOLDINGS = {
         "currency": "USD",
         "asset_type": "Individual Equity",
     },
+    "LEO-USD": {
+        "name": "LEO Coin",
+        "isin": "—",
+        "units": 150.0,
+        "initial_price_eur": 2.0,
+        "currency": "USD",  # LEO-USD quotes in US dollars
+        "asset_type": "Crypto",
+    },
 }
+
+# Tickers that represent listed equity (used for country-exposure analytics,
+# which does not apply to crypto holdings).
+EQUITY_TICKERS = [t for t, h in HOLDINGS.items() if h["asset_type"] != "Crypto"]
 
 ECB_DEPOSIT_RATE = 0.0225  # 2.25 % p.a.
 
 INITIAL_INVESTED = sum(h["units"] * h["initial_price_eur"] for h in HOLDINGS.values())
 INITIAL_CASH = INITIAL_CAPITAL - INITIAL_INVESTED
+INITIAL_EQUITY_INVESTED = sum(
+    HOLDINGS[t]["units"] * HOLDINGS[t]["initial_price_eur"] for t in EQUITY_TICKERS
+)
 
 # Approximate FTSE All-World country weights (%)
 FTSE_COUNTRY_WEIGHTS = {
@@ -105,10 +120,12 @@ C = {
     "VWRD.L": "#58a6ff",
     "RHM.DE": "#f0c040",
     "TTWO": "#f78166",
+    "LEO-USD": "#bc8cff",
     "cash": "#56d364",
     "Risk-Free (Cash)": "#56d364",
     "Benchmark ETF": "#58a6ff",
     "Individual Equity": "#f78166",
+    "Crypto": "#bc8cff",
 }
 
 PLOTLY_LAYOUT = dict(
@@ -206,13 +223,14 @@ def benchmark_returns(portfolio: pd.DataFrame) -> pd.DataFrame:
     out["FTSE All World (Benchmark)"] = (portfolio["VWRD.L"] / first["VWRD.L"] - 1) * 100
     out["Rheinmetall"] = (portfolio["RHM.DE"] / first["RHM.DE"] - 1) * 100
     out["Take-Two Interactive"] = (portfolio["TTWO"] / first["TTWO"] - 1) * 100
+    out["LEO Coin"] = (portfolio["LEO-USD"] / first["LEO-USD"] - 1) * 100
     return pd.DataFrame(out)
 
 
 def country_exposure(portfolio: pd.DataFrame) -> pd.Series:
     """Blended equity-only country exposure (%)."""
     latest = portfolio.iloc[-1]
-    total_equity = sum(latest[t] for t in HOLDINGS)
+    total_equity = sum(latest[t] for t in EQUITY_TICKERS)
 
     exp: dict[str, float] = {}
     vwrd_w = latest["VWRD.L"] / total_equity
@@ -249,6 +267,7 @@ def chart_networth(portfolio: pd.DataFrame) -> str:
         ("VWRD.L",  "FTSE All World ETF",         C["VWRD.L"]),
         ("RHM.DE",  "Rheinmetall AG",             C["RHM.DE"]),
         ("TTWO",    "Take-Two Interactive",        C["TTWO"]),
+        ("LEO-USD", "LEO Coin (Crypto)",          C["LEO-USD"]),
     ]
     cum = pd.Series(0.0, index=portfolio.index)
     for col, label, clr in components:
@@ -289,13 +308,14 @@ def chart_allocation(portfolio: pd.DataFrame) -> str:
     latest = portfolio.iloc[-1]
     total = latest["total"]
 
-    labels = ["Risk-Free (Cash)", "Benchmark ETF", "Individual Equity"]
+    labels = ["Risk-Free (Cash)", "Benchmark ETF", "Individual Equity", "Crypto"]
     values = [
         latest["cash"],
         latest["VWRD.L"],
         latest["RHM.DE"] + latest["TTWO"],
+        latest["LEO-USD"],
     ]
-    colors = [C["Risk-Free (Cash)"], C["Benchmark ETF"], C["Individual Equity"]]
+    colors = [C["Risk-Free (Cash)"], C["Benchmark ETF"], C["Individual Equity"], C["Crypto"]]
 
     fig = go.Figure(go.Pie(
         labels=labels,
@@ -325,6 +345,7 @@ def chart_benchmark(bench: pd.DataFrame) -> str:
         "FTSE All World (Benchmark)": C["VWRD.L"],
         "Rheinmetall": C["RHM.DE"],
         "Take-Two Interactive": C["TTWO"],
+        "LEO Coin": C["LEO-USD"],
     }
     fig = go.Figure()
     fig.add_hline(y=0, line=dict(color=C["muted"], dash="dash", width=1))
@@ -494,8 +515,8 @@ def build_dashboard(portfolio: pd.DataFrame, bench: pd.DataFrame, exposure: pd.S
                  total_ret_color),
         kpi_card("Cash (ECB 2.25%)", f"€{latest['cash']:,.2f}",
                  f"Interest earned: €{cash_interest:,.2f}", C["green"]),
-        kpi_card("Equity Value", f"€{sum(latest[t] for t in HOLDINGS):,.2f}",
-                 f"of €{INITIAL_INVESTED:,.2f} invested"),
+        kpi_card("Equity Value", f"€{sum(latest[t] for t in EQUITY_TICKERS):,.2f}",
+                 f"of €{INITIAL_EQUITY_INVESTED:,.2f} invested"),
     ])
 
     # Position cards
