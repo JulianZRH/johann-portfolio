@@ -645,7 +645,26 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"Dashboard saved -> {out_path}")
-    print("Open it in any browser to view.\n")
+
+    import webbrowser, os, subprocess, sys
+    abs_path = os.path.abspath(out_path)
+    url = f"file:///{abs_path.replace(os.sep, '/')}"
+
+    opened = False
+    if sys.platform == "win32":
+        chrome_candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]
+        for exe in chrome_candidates:
+            if os.path.exists(exe):
+                subprocess.Popen([exe, url])
+                opened = True
+                break
+    if not opened:
+        webbrowser.open(url)
+    print("Dashboard opened in browser.\n")
 
 
 if __name__ == "__main__":
