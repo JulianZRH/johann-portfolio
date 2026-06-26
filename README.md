@@ -23,7 +23,8 @@ Running `portfolio_tracker.py` performs the following steps:
    value. The cost basis (`initial_price_eur`) is used only to measure
    performance, never to value a position.
 3. **Builds a daily portfolio series** — combines holding values with cash that
-   compounds daily at the ECB deposit-facility rate (2.25 % p.a.).
+   compounds daily at the ECB deposit-facility rate, fetched live from the ECB
+   Data Portal each run (falling back to a hardcoded rate if offline).
 4. **Runs analytics** — cumulative return of each pick vs. the FTSE All-World
    benchmark, and a blended *equity-only* country exposure (crypto is excluded
    from country analytics).
@@ -103,7 +104,10 @@ Everything is configured at the top of `portfolio_tracker.py`:
   `currency` of the Yahoo quote — `USD`, `EUR`, `GBP`, or `GBp` (pence) — and
   asset type). Set `asset_type` to `"Crypto"` to exclude a holding from the
   equity-only country analytics.
-- `ECB_DEPOSIT_RATE` — the rate at which idle cash compounds.
+- `ECB_DEPOSIT_RATE` — fallback rate at which idle cash compounds. The script
+  fetches the live ECB deposit-facility rate from the ECB Data Portal each run
+  (series `FM/D.U2.EUR.4F.KR.DFR.LEV`) and only uses this constant if the
+  request fails.
 - `FTSE_COUNTRY_WEIGHTS` — approximate benchmark country weights for the map.
 
 ## Notes
@@ -111,3 +115,6 @@ Everything is configured at the top of `portfolio_tracker.py`:
 - Prices come from Yahoo Finance and may be delayed; FTSE All-World country
   weights are approximate. For informational purposes only — not financial
   advice.
+- The current ECB deposit-facility rate is applied as a flat rate across the
+  whole holding period (no intra-period rate-change schedule). Over a short
+  horizon the difference is negligible.

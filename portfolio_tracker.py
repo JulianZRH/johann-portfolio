@@ -67,7 +67,9 @@ HOLDINGS = {
 # which does not apply to crypto holdings).
 EQUITY_TICKERS = [t for t, h in HOLDINGS.items() if h["asset_type"] != "Crypto"]
 
-ECB_DEPOSIT_RATE = 0.0225  # 2.25 % p.a.
+# ECB deposit facility rate (decimal, p.a.). Refreshed live from the ECB Data
+# Portal at runtime; this value is the fallback if the request fails.
+ECB_DEPOSIT_RATE = 0.0225
 
 INITIAL_INVESTED = sum(h["units"] * h["initial_price_eur"] for h in HOLDINGS.values())
 INITIAL_EQUITY_INVESTED = sum(
@@ -144,6 +146,27 @@ PLOTLY_LAYOUT = dict(
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA FETCHING
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def fetch_ecb_deposit_rate(fallback: float = 0.0225) -> float:
+    """
+    Fetch the latest ECB deposit facility rate as a decimal (e.g. 0.0225) from
+    the ECB Data Portal (series FM/D.U2.EUR.4F.KR.DFR.LEV). Returns ``fallback``
+    if the request or parse fails, so the script always runs offline.
+    """
+    import urllib.request, csv, io
+    url = ("https://data-api.ecb.europa.eu/service/data/FM/"
+           "D.U2.EUR.4F.KR.DFR.LEV?lastNObservations=1&format=csvdata")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "portfolio-tracker"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            rows = list(csv.DictReader(io.StringIO(resp.read().decode("utf-8"))))
+        rate = float(rows[-1]["OBS_VALUE"]) / 100.0  # OBS_VALUE is a percentage
+        print(f"  ECB deposit facility rate: {rate*100:.2f}% (as of {rows[-1]['TIME_PERIOD']})")
+        return rate
+    except Exception as e:
+        print(f"  ECB rate fetch failed ({e}); using fallback {fallback*100:.2f}%.")
+        return fallback
+
 
 def fetch_data() -> pd.DataFrame:
     """Download daily close prices for all assets + FX pairs."""
@@ -515,7 +538,7 @@ def build_dashboard(portfolio: pd.DataFrame, bench: pd.DataFrame, exposure: pd.S
                  f"{total_ret_pct:+.2f}%",
                  f"{'▲' if total_ret_eur >= 0 else '▼'} €{total_ret_eur:+,.2f} total return",
                  total_ret_color),
-        kpi_card("Cash (ECB 2.25%)", f"€{latest['cash']:,.2f}",
+        kpi_card(f"Cash (ECB {ECB_DEPOSIT_RATE*100:.2f}%)", f"€{latest['cash']:,.2f}",
                  f"Interest earned: €{cash_interest:,.2f}", C["green"]),
         kpi_card("Equity Value", f"€{sum(latest[t] for t in EQUITY_TICKERS):,.2f}",
                  f"of €{INITIAL_EQUITY_INVESTED:,.2f} invested"),
@@ -680,11 +703,14 @@ def find_chrome() -> str | None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    global ECB_DEPOSIT_RATE
+    ECB_DEPOSIT_RATE = fetch_ecb_deposit_rate(ECB_DEPOSIT_RATE)
+
     print("\nJohann's Portfolio Tracker")
     print(f"   Investment date : {START_DATE}")
     print(f"   Initial capital : EUR {INITIAL_CAPITAL:,.2f}")
     print(f"   Invested        : EUR {INITIAL_INVESTED:,.2f}")
-    print(f"   Cash (ECB 2.25%): EUR {INITIAL_CASH:,.2f}\n")
+    print(f"   Cash (ECB {ECB_DEPOSIT_RATE*100:.2f}%): EUR {INITIAL_CASH:,.2f}\n")
 
     print("Fetching live market data ...")
     close   = fetch_data()
