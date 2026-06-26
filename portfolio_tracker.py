@@ -223,7 +223,6 @@ def benchmark_returns(portfolio: pd.DataFrame) -> pd.DataFrame:
         "VWRD.L": "FTSE All World (Benchmark)",
         "RHM.DE": "Rheinmetall",
         "TTWO": "Take-Two Interactive",
-        "LEO-USD": "LEO Coin",
     }
     out = {}
     for ticker, label in labels.items():
@@ -350,7 +349,6 @@ def chart_benchmark(bench: pd.DataFrame) -> str:
         "FTSE All World (Benchmark)": C["VWRD.L"],
         "Rheinmetall": C["RHM.DE"],
         "Take-Two Interactive": C["TTWO"],
-        "LEO Coin": C["LEO-USD"],
     }
     fig = go.Figure()
     fig.add_hline(y=0, line=dict(color=C["muted"], dash="dash", width=1))
@@ -366,7 +364,7 @@ def chart_benchmark(bench: pd.DataFrame) -> str:
 
     fig.update_layout(
         **PLOTLY_LAYOUT,
-        title=dict(text="Individual Picks vs Benchmark (% return vs cost basis)", font=dict(size=16)),
+        title=dict(text="Individual Shares vs Benchmark ETF (% return vs cost basis)", font=dict(size=16)),
         xaxis=dict(gridcolor=C["border"], zeroline=False),
         yaxis=dict(gridcolor=C["border"], zeroline=True, ticksuffix="%",
                    zerolinecolor=C["border"]),
