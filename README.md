@@ -66,7 +66,8 @@ what lets LEO Coin (cost €2.00, now ≈€8.14) and Rheinmetall (cost €1,078
   line and the cost-basis reference line (cash + every holding's cost ≈ €13,300).
 - **Asset allocation** — donut split across Risk-Free (Cash), Benchmark ETF,
   Individual Equity, and Crypto.
-- **Picks vs. benchmark** — cumulative % return of each pick against VWRD.
+- **Picks vs. benchmark** — cumulative % return of each pick (and the VWRD
+  benchmark) measured against its cost basis.
 - **Country exposure** — choropleth map and top-12 bar chart (equity only).
 
 ## Requirements

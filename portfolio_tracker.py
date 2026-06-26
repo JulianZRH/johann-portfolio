@@ -218,13 +218,17 @@ def build_portfolio_series(close: pd.DataFrame) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def benchmark_returns(portfolio: pd.DataFrame) -> pd.DataFrame:
-    """Cumulative % return of each equity position vs VWRD benchmark."""
-    first = portfolio.iloc[0]
+    """Cumulative % return of each position measured against its cost basis."""
+    labels = {
+        "VWRD.L": "FTSE All World (Benchmark)",
+        "RHM.DE": "Rheinmetall",
+        "TTWO": "Take-Two Interactive",
+        "LEO-USD": "LEO Coin",
+    }
     out = {}
-    out["FTSE All World (Benchmark)"] = (portfolio["VWRD.L"] / first["VWRD.L"] - 1) * 100
-    out["Rheinmetall"] = (portfolio["RHM.DE"] / first["RHM.DE"] - 1) * 100
-    out["Take-Two Interactive"] = (portfolio["TTWO"] / first["TTWO"] - 1) * 100
-    out["LEO Coin"] = (portfolio["LEO-USD"] / first["LEO-USD"] - 1) * 100
+    for ticker, label in labels.items():
+        cost = HOLDINGS[ticker]["units"] * HOLDINGS[ticker]["initial_price_eur"]
+        out[label] = (portfolio[ticker] / cost - 1) * 100
     return pd.DataFrame(out)
 
 
@@ -362,7 +366,7 @@ def chart_benchmark(bench: pd.DataFrame) -> str:
 
     fig.update_layout(
         **PLOTLY_LAYOUT,
-        title=dict(text="Individual Picks vs Benchmark (% return since 23 Jun 2026)", font=dict(size=16)),
+        title=dict(text="Individual Picks vs Benchmark (% return vs cost basis)", font=dict(size=16)),
         xaxis=dict(gridcolor=C["border"], zeroline=False),
         yaxis=dict(gridcolor=C["border"], zeroline=True, ticksuffix="%",
                    zerolinecolor=C["border"]),
