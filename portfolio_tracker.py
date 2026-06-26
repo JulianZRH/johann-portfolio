@@ -50,13 +50,18 @@ HOLDINGS = {
         "currency": "USD",
         "asset_type": "Individual Equity",
     },
-    "LEO-USD": {
+    "LEO": {
         "name": "LEO Coin",
         "isin": "—",
         "units": 150.0,
-        "initial_price_eur": 2.0,
-        "currency": "USD",  # LEO-USD quotes in US dollars
+        "initial_price_eur": 2.0,    # cost basis per coin (drives performance)
+        "current_price_eur": 8.14,   # latest market price per coin (manual)
+        "currency": "EUR",
         "asset_type": "Crypto",
+        # No reliable Yahoo Finance feed tracks this coin, so it is valued
+        # manually: bought at initial_price_eur, currently current_price_eur.
+        # Update current_price_eur to refresh the valuation.
+        "manual_price": True,
     },
 }
 
@@ -120,7 +125,7 @@ C = {
     "VWRD.L": "#58a6ff",
     "RHM.DE": "#f0c040",
     "TTWO": "#f78166",
-    "LEO-USD": "#bc8cff",
+    "LEO": "#bc8cff",
     "cash": "#56d364",
     "Risk-Free (Cash)": "#56d364",
     "Benchmark ETF": "#58a6ff",
@@ -146,7 +151,8 @@ def fetch_data() -> pd.DataFrame:
     fetch_start = (datetime.combine(START_DATE, datetime.min.time()) - timedelta(days=7)).strftime("%Y-%m-%d")
     fetch_end   = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    tickers = list(HOLDINGS.keys()) + ["GBPEUR=X", "EURUSD=X"]
+    # Manually-priced holdings (e.g. crypto with no reliable feed) are skipped.
+    tickers = [t for t, h in HOLDINGS.items() if not h.get("manual_price")] + ["GBPEUR=X", "EURUSD=X"]
     print(f"  Fetching prices {fetch_start} to {date.today()} ...")
 
     raw = yf.download(tickers, start=fetch_start, end=fetch_end,
@@ -174,6 +180,16 @@ def prices_to_eur(close: pd.DataFrame) -> pd.DataFrame:
 
     eur = pd.DataFrame(index=close.index)
     for ticker, h in HOLDINGS.items():
+        if h.get("manual_price"):
+            # No market feed: ramp linearly from cost basis (at inception) to the
+            # current manual price (latest date). Keeps the inception total at the
+            # initial capital while reflecting today's value and performance.
+            n = len(eur.index)
+            if n > 1:
+                eur[ticker] = np.linspace(h["initial_price_eur"], h["current_price_eur"], n)
+            else:
+                eur[ticker] = h["current_price_eur"]
+            continue
         if ticker not in close.columns:
             eur[ticker] = h["initial_price_eur"]
             continue
@@ -223,7 +239,7 @@ def benchmark_returns(portfolio: pd.DataFrame) -> pd.DataFrame:
     out["FTSE All World (Benchmark)"] = (portfolio["VWRD.L"] / first["VWRD.L"] - 1) * 100
     out["Rheinmetall"] = (portfolio["RHM.DE"] / first["RHM.DE"] - 1) * 100
     out["Take-Two Interactive"] = (portfolio["TTWO"] / first["TTWO"] - 1) * 100
-    out["LEO Coin"] = (portfolio["LEO-USD"] / first["LEO-USD"] - 1) * 100
+    out["LEO Coin"] = (portfolio["LEO"] / first["LEO"] - 1) * 100
     return pd.DataFrame(out)
 
 
@@ -267,7 +283,7 @@ def chart_networth(portfolio: pd.DataFrame) -> str:
         ("VWRD.L",  "FTSE All World ETF",         C["VWRD.L"]),
         ("RHM.DE",  "Rheinmetall AG",             C["RHM.DE"]),
         ("TTWO",    "Take-Two Interactive",        C["TTWO"]),
-        ("LEO-USD", "LEO Coin (Crypto)",          C["LEO-USD"]),
+        ("LEO",     "LEO Coin (Crypto)",          C["LEO"]),
     ]
     cum = pd.Series(0.0, index=portfolio.index)
     for col, label, clr in components:
@@ -313,7 +329,7 @@ def chart_allocation(portfolio: pd.DataFrame) -> str:
         latest["cash"],
         latest["VWRD.L"],
         latest["RHM.DE"] + latest["TTWO"],
-        latest["LEO-USD"],
+        latest["LEO"],
     ]
     colors = [C["Risk-Free (Cash)"], C["Benchmark ETF"], C["Individual Equity"], C["Crypto"]]
 
@@ -345,7 +361,7 @@ def chart_benchmark(bench: pd.DataFrame) -> str:
         "FTSE All World (Benchmark)": C["VWRD.L"],
         "Rheinmetall": C["RHM.DE"],
         "Take-Two Interactive": C["TTWO"],
-        "LEO Coin": C["LEO-USD"],
+        "LEO Coin": C["LEO"],
     }
     fig = go.Figure()
     fig.add_hline(y=0, line=dict(color=C["muted"], dash="dash", width=1))

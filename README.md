@@ -34,15 +34,24 @@ Running `portfolio_tracker.py` performs the following steps:
 
 ## Holdings
 
-| Ticker     | Name                       | Units   | Initial price | Currency | Asset type        |
-|------------|----------------------------|---------|---------------|----------|-------------------|
-| `VWRD.L`   | FTSE All-World ETF (VWRD)  | 31.541  | €158.50       | GBp      | Benchmark ETF     |
-| `RHM.DE`   | Rheinmetall AG             | 1.0     | €1,078.80     | EUR      | Individual Equity |
-| `TTWO`     | Take-Two Interactive       | 5.0     | €210.00       | USD      | Individual Equity |
-| `LEO-USD`  | LEO Coin                   | 150.0   | €2.00         | USD      | Crypto            |
+| Ticker   | Name                       | Units   | Cost basis | Currency | Asset type        |
+|----------|----------------------------|---------|------------|----------|-------------------|
+| `VWRD.L` | FTSE All-World ETF (VWRD)  | 31.541  | €158.50    | GBp      | Benchmark ETF     |
+| `RHM.DE` | Rheinmetall AG             | 1.0     | €1,078.80  | EUR      | Individual Equity |
+| `TTWO`   | Take-Two Interactive       | 5.0     | €210.00    | USD      | Individual Equity |
+| `LEO`    | LEO Coin                   | 150.0   | €2.00      | EUR      | Crypto            |
 
 The remainder of the €13,000 (after the invested positions) is held as cash and
 accrues interest at the ECB rate.
+
+### Manually-priced holdings
+
+Most holdings are valued live from Yahoo Finance. LEO Coin has no reliable feed,
+so it is **valued manually**: `initial_price_eur` is the cost basis (€2.00, drives
+performance) and `current_price_eur` is the latest market price (€8.14). Its value
+is ramped from cost basis at inception to the current price on the latest date.
+To refresh it, edit `current_price_eur` in the `HOLDINGS` config. Any holding can
+be made manual by adding `"manual_price": True` with a `current_price_eur`.
 
 ## Dashboard sections
 
@@ -83,9 +92,10 @@ browser. Re-run any time to refresh with the latest market data.
 Everything is configured at the top of `portfolio_tracker.py`:
 
 - `START_DATE` / `INITIAL_CAPITAL` — investment date and starting capital.
-- `HOLDINGS` — add or edit positions (ticker, units, initial EUR price,
+- `HOLDINGS` — add or edit positions (ticker, units, cost basis in EUR,
   currency, asset type). Set `asset_type` to `"Crypto"` to exclude a holding
-  from the equity-only country analytics.
+  from the equity-only country analytics. Add `"manual_price": True` plus
+  `current_price_eur` to value a holding manually instead of via Yahoo Finance.
 - `ECB_DEPOSIT_RATE` — the rate at which idle cash compounds.
 - `FTSE_COUNTRY_WEIGHTS` — approximate benchmark country weights for the map.
 
